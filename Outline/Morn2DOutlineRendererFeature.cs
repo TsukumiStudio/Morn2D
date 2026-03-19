@@ -9,13 +9,14 @@ namespace MornLib
     /// <summary>複数スプライトの統合アウトラインを描画するRenderer Feature</summary>
     public sealed class Morn2DOutlineRendererFeature : ScriptableRendererFeature
     {
-        private const string SilhouetteShaderName = "Hidden/Morn2D/OutlineSilhouette";
-
         [Serializable]
         public sealed class Settings
         {
             [Tooltip("アウトライン対象のUnityレイヤー")]
             public LayerMask TargetLayerMask;
+
+            [Tooltip("シルエット描画用シェーダー (Hidden/Morn2D/OutlineSilhouette)")]
+            public Shader SilhouetteShader;
 
             [Tooltip("アウトライン合成用マテリアル (Morn2D/OutlineComposite)")]
             public Material CompositeMaterial;
@@ -30,10 +31,9 @@ namespace MornLib
 
         public override void Create()
         {
-            var silhouetteShader = Shader.Find(SilhouetteShaderName);
-            if (silhouetteShader != null)
+            if (_settings.SilhouetteShader != null)
             {
-                _silhouetteMaterial = CoreUtils.CreateEngineMaterial(silhouetteShader);
+                _silhouetteMaterial = CoreUtils.CreateEngineMaterial(_settings.SilhouetteShader);
             }
 
             _silhouettePass = new Morn2DOutlineSilhouettePass(_silhouetteMaterial);
