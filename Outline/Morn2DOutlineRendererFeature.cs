@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Rendering.Universal;
 
 namespace MornLib
@@ -57,18 +58,16 @@ namespace MornLib
 
         protected override void Dispose(bool disposing)
         {
-            _silhouettePass?.Dispose();
             CoreUtils.Destroy(_silhouetteMaterial);
         }
 
         /// <summary>対象レイヤーのスプライトをシルエットとしてRTに描画するパス</summary>
-        private sealed class Morn2DOutlineSilhouettePass : ScriptableRenderPass, IDisposable
+        private sealed class Morn2DOutlineSilhouettePass : ScriptableRenderPass
         {
             private static readonly int s_silhouetteTexId = Shader.PropertyToID("_Morn2DOutlineSilhouetteTex");
             private static readonly int s_silhouetteTexTexelSizeId = Shader.PropertyToID("_Morn2DOutlineSilhouetteTex_TexelSize");
 
             private readonly Material _silhouetteMaterial;
-            private RTHandle _silhouetteRT;
             private readonly List<ShaderTagId> _shaderTagIds;
             private readonly ProfilingSampler _profilingSampler;
 
@@ -87,53 +86,72 @@ namespace MornLib
                 };
             }
 
-#pragma warning disable CS0618
-            public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
+            private sealed class SilhouettePassData
             {
-                var desc = renderingData.cameraData.cameraTargetDescriptor;
+                public RendererListHandle RendererListHandle;
+                public TextureHandle SilhouetteTexture;
+                public int Width;
+                public int Height;
+            }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                var cameraData = frameData.Get<UniversalCameraData>();
+                var renderingData = frameData.Get<UniversalRenderingData>();
+                var lightData = frameData.Get<UniversalLightData>();
+
+                var desc = cameraData.cameraTargetDescriptor;
                 desc.msaaSamples = 1;
                 desc.depthBufferBits = 0;
                 desc.colorFormat = RenderTextureFormat.R8;
-                RenderingUtils.ReAllocateHandleIfNeeded(
-                    ref _silhouetteRT, desc, FilterMode.Bilinear, TextureWrapMode.Clamp,
-                    name: "_Morn2DOutlineSilhouetteTex");
-            }
+                var silhouetteTexture = UniversalRenderer.CreateRenderGraphTexture(
+                    renderGraph, desc, "_Morn2DOutlineSilhouetteTex", false,
+                    FilterMode.Bilinear, TextureWrapMode.Clamp);
 
-            public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
-            {
-                var cmd = CommandBufferPool.Get();
-                using (new ProfilingScope(cmd, _profilingSampler))
+                using (var builder = renderGraph.AddRasterRenderPass<SilhouettePassData>(
+                           "Morn2DOutlineSilhouette", out var passData, _profilingSampler))
                 {
-                    CoreUtils.SetRenderTarget(cmd, _silhouetteRT, ClearFlag.Color, Color.clear);
+                    builder.SetRenderAttachment(silhouetteTexture, 0);
 
-                    context.ExecuteCommandBuffer(cmd);
-                    cmd.Clear();
-
-                    var drawingSettings = CreateDrawingSettings(
-                        _shaderTagIds, ref renderingData, SortingCriteria.CommonTransparent);
+                    var drawingSettings = RenderingUtils.CreateDrawingSettings(
+                        _shaderTagIds, renderingData, cameraData, lightData,
+                        SortingCriteria.CommonTransparent);
                     drawingSettings.overrideMaterial = _silhouetteMaterial;
                     drawingSettings.overrideMaterialPassIndex = 0;
 
                     var filteringSettings = new FilteringSettings(
                         RenderQueueRange.all, TargetLayerMask);
 
-                    context.DrawRenderers(
-                        renderingData.cullResults, ref drawingSettings, ref filteringSettings);
+                    var rendererListParams = new RendererListParams(
+                        renderingData.cullResults, drawingSettings, filteringSettings);
+                    passData.RendererListHandle = renderGraph.CreateRendererList(rendererListParams);
+                    builder.UseRendererList(passData.RendererListHandle);
+                    passData.SilhouetteTexture = silhouetteTexture;
 
-                    cmd.SetGlobalTexture(s_silhouetteTexId, _silhouetteRT.nameID);
-                    var rt = _silhouetteRT.rt;
-                    cmd.SetGlobalVector(s_silhouetteTexTexelSizeId, new Vector4(
-                        1f / rt.width, 1f / rt.height, rt.width, rt.height));
+                    builder.SetRenderFunc(static (SilhouettePassData data, RasterGraphContext context) =>
+                    {
+                        context.cmd.ClearRenderTarget(false, true, Color.clear);
+                        context.cmd.DrawRendererList(data.RendererListHandle);
+                    });
                 }
 
-                context.ExecuteCommandBuffer(cmd);
-                CommandBufferPool.Release(cmd);
-            }
-#pragma warning restore CS0618
+                // グローバルテクスチャとTexelSizeの設定
+                using (var builder = renderGraph.AddUnsafePass<SilhouettePassData>(
+                           "Morn2DOutlineSilhouetteSetGlobals", out var globalPassData))
+                {
+                    globalPassData.SilhouetteTexture = silhouetteTexture;
+                    globalPassData.Width = desc.width;
+                    globalPassData.Height = desc.height;
+                    builder.UseTexture(silhouetteTexture);
 
-            public void Dispose()
-            {
-                _silhouetteRT?.Release();
+                    builder.SetRenderFunc(static (SilhouettePassData data, UnsafeGraphContext context) =>
+                    {
+                        var cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                        cmd.SetGlobalTexture(s_silhouetteTexId, data.SilhouetteTexture);
+                        cmd.SetGlobalVector(s_silhouetteTexTexelSizeId, new Vector4(
+                            1f / data.Width, 1f / data.Height, data.Width, data.Height));
+                    });
+                }
             }
         }
 
@@ -149,23 +167,29 @@ namespace MornLib
                 _profilingSampler = new ProfilingSampler("Morn2DOutlineComposite");
             }
 
-#pragma warning disable CS0618
-            public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
+            private sealed class CompositePassData
             {
-                var cmd = CommandBufferPool.Get();
-                using (new ProfilingScope(cmd, _profilingSampler))
-                {
-                    CoreUtils.SetRenderTarget(
-                        cmd, renderingData.cameraData.renderer.cameraColorTargetHandle);
-                    cmd.DrawProcedural(
-                        Matrix4x4.identity, _settings.CompositeMaterial, 0,
-                        MeshTopology.Triangles, 3, 1);
-                }
-
-                context.ExecuteCommandBuffer(cmd);
-                CommandBufferPool.Release(cmd);
+                public Material CompositeMaterial;
             }
-#pragma warning restore CS0618
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                var resourceData = frameData.Get<UniversalResourceData>();
+
+                using (var builder = renderGraph.AddRasterRenderPass<CompositePassData>(
+                           "Morn2DOutlineComposite", out var passData, _profilingSampler))
+                {
+                    builder.SetRenderAttachment(resourceData.activeColorTexture, 0);
+                    passData.CompositeMaterial = _settings.CompositeMaterial;
+
+                    builder.SetRenderFunc(static (CompositePassData data, RasterGraphContext context) =>
+                    {
+                        context.cmd.DrawProcedural(
+                            Matrix4x4.identity, data.CompositeMaterial, 0,
+                            MeshTopology.Triangles, 3, 1);
+                    });
+                }
+            }
         }
     }
 }
