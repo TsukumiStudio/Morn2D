@@ -88,6 +88,7 @@ namespace MornLib
             }
 
 #pragma warning disable CS0618
+            [System.Obsolete]
             public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
             {
                 var desc = renderingData.cameraData.cameraTargetDescriptor;
@@ -99,6 +100,7 @@ namespace MornLib
                     name: "_Morn2DOutlineSilhouetteTex");
             }
 
+            [System.Obsolete]
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
             {
                 var cmd = CommandBufferPool.Get();
@@ -150,6 +152,7 @@ namespace MornLib
             }
 
 #pragma warning disable CS0618
+            [System.Obsolete]
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
             {
                 var cmd = CommandBufferPool.Get();
