@@ -1,0 +1,26 @@
+{
+    "name": "Morn2D.URP",
+    "rootNamespace": "MornLib",
+    "references": [
+        "Morn2D",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Core.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "MORN_URP"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.universal",
+            "expression": "0.0.0",
+            "define": "MORN_URP"
+        }
+    ],
+    "noEngineReferences": false
+}

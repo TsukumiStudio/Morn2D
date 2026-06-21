@@ -1,10 +1,7 @@
 {
     "name": "Morn2D",
     "rootNamespace": "MornLib",
-    "references": [
-        "Unity.RenderPipelines.Universal.Runtime",
-        "Unity.RenderPipelines.Core.Runtime"
-    ],
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
